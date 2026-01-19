@@ -1,18 +1,15 @@
 import { CensusService } from './census.service';
+import { CheckStatusDto } from './dto/census.dto';
 export declare class CensusController {
     private readonly censusService;
     constructor(censusService: CensusService);
-    verificarEstado(data: {
-        cedula: string;
-    }): Promise<{
+    verificarEstado(data: CheckStatusDto): Promise<{
         puedeVotar: boolean;
         mensaje: string;
         nombres: string;
         recinto: string;
     }>;
-    registrarVoto(data: {
-        cedula: string;
-    }): Promise<{
+    registrarVoto(data: CheckStatusDto): Promise<{
         success: boolean;
         message: string;
     }>;

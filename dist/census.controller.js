@@ -16,6 +16,7 @@ exports.CensusController = void 0;
 const common_1 = require("@nestjs/common");
 const microservices_1 = require("@nestjs/microservices");
 const census_service_1 = require("./census.service");
+const census_dto_1 = require("./dto/census.dto");
 let CensusController = class CensusController {
     censusService;
     constructor(censusService) {
@@ -38,14 +39,14 @@ __decorate([
     (0, microservices_1.MessagePattern)('census.check-status'),
     __param(0, (0, microservices_1.Payload)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
     __metadata("design:returntype", Promise)
 ], CensusController.prototype, "verificarEstado", null);
 __decorate([
     (0, microservices_1.MessagePattern)('census.register-vote'),
     __param(0, (0, microservices_1.Payload)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
     __metadata("design:returntype", Promise)
 ], CensusController.prototype, "registrarVoto", null);
 __decorate([
