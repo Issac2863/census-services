@@ -26,6 +26,22 @@ let CensusController = class CensusController {
         console.log('[CENSUS CONTROLLER] Mensaje recibido: census.check-status');
         return this.censusService.verificarEstadoVoto(data.cedula);
     }
+    async obtenerEstado(data) {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.get-status');
+        return this.censusService.obtenerEstadoVoto(data.cedula);
+    }
+    async iniciarVotacion(data) {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.start-voting');
+        return this.censusService.iniciarVotacion(data.cedula);
+    }
+    async guardarVoto(data) {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.save-vote');
+        return this.censusService.guardarVoto(data.cedula);
+    }
+    async confirmarVoto(data) {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.confirm-vote');
+        return this.censusService.confirmarVoto(data.cedula);
+    }
     async registrarVoto(data) {
         console.log('[CENSUS CONTROLLER] Mensaje recibido: census.register-vote');
         return this.censusService.registrarVotoRealizado(data.cedula);
@@ -42,6 +58,34 @@ __decorate([
     __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
     __metadata("design:returntype", Promise)
 ], CensusController.prototype, "verificarEstado", null);
+__decorate([
+    (0, microservices_1.MessagePattern)('census.get-status'),
+    __param(0, (0, microservices_1.Payload)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
+    __metadata("design:returntype", Promise)
+], CensusController.prototype, "obtenerEstado", null);
+__decorate([
+    (0, microservices_1.MessagePattern)('census.start-voting'),
+    __param(0, (0, microservices_1.Payload)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
+    __metadata("design:returntype", Promise)
+], CensusController.prototype, "iniciarVotacion", null);
+__decorate([
+    (0, microservices_1.MessagePattern)('census.save-vote'),
+    __param(0, (0, microservices_1.Payload)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
+    __metadata("design:returntype", Promise)
+], CensusController.prototype, "guardarVoto", null);
+__decorate([
+    (0, microservices_1.MessagePattern)('census.confirm-vote'),
+    __param(0, (0, microservices_1.Payload)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
+    __metadata("design:returntype", Promise)
+], CensusController.prototype, "confirmarVoto", null);
 __decorate([
     (0, microservices_1.MessagePattern)('census.register-vote'),
     __param(0, (0, microservices_1.Payload)()),
