@@ -31,7 +31,7 @@ export class CensusService {
     private inicializarPadronMock() {
         const ciudadanos = [
             { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE', email: 'issac.delacadena@epn.edu.ec' },
-            { cedula: '1722256492', nombres: 'JUAN PEREZ', recinto: 'COLEGIO MEJIA', email: 'joel.participante@epn.edu.ec', },
+            { cedula: '1724915770', nombres: 'JOEL DEFAZ', recinto: 'COLEGIO MEJIA', email: 'joe.def2019@gmail.com', },
             { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL', email: 'participante3@epn.edu.ec' },
         ];
 
