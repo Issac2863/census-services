@@ -46,6 +46,14 @@ let CensusController = class CensusController {
         console.log('[CENSUS CONTROLLER] Mensaje recibido: census.register-vote');
         return this.censusService.registrarVotoRealizado(data.cedula);
     }
+    async consultCitizineWithVote() {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.consult_citizine_with_vote');
+        return this.censusService.obtenerPendientesCertificado();
+    }
+    async confirmarEnvioCertificados(data) {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.certificates_send_update');
+        return this.censusService.confirmarEnvioCertificados(data.cedulas);
+    }
     healthCheck() {
         return this.censusService.healthCheck();
     }
@@ -93,6 +101,19 @@ __decorate([
     __metadata("design:paramtypes", [census_dto_1.CheckStatusDto]),
     __metadata("design:returntype", Promise)
 ], CensusController.prototype, "registrarVoto", null);
+__decorate([
+    (0, microservices_1.MessagePattern)('census.consult_citizine_with_vote'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], CensusController.prototype, "consultCitizineWithVote", null);
+__decorate([
+    (0, microservices_1.MessagePattern)('census.certificates_send_update'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CensusController.prototype, "confirmarEnvioCertificados", null);
 __decorate([
     (0, microservices_1.MessagePattern)('census.health'),
     __metadata("design:type", Function),

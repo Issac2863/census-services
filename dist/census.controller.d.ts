@@ -41,6 +41,16 @@ export declare class CensusController {
         estadoActual: EstadoVoto;
         message: string;
     }>;
+    consultCitizineWithVote(): Promise<any[]>;
+    confirmarEnvioCertificados(data: {
+        cedulas: string[];
+    }): Promise<{
+        success: boolean;
+        procesados: number;
+        fallidos: number;
+        errores: any[];
+        message: string;
+    }>;
     healthCheck(): {
         status: string;
         service: string;

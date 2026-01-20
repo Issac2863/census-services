@@ -15,6 +15,8 @@ interface CiudadanoPadron {
     nombres: string;
     recinto: string;
     estadoVoto: EstadoVoto;
+    email: string;
+    certificado_enviado: boolean;
 }
 
 @Injectable()
@@ -28,15 +30,16 @@ export class CensusService {
 
     private inicializarPadronMock() {
         const ciudadanos = [
-            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE' },
-            { cedula: '1722256492', nombres: 'JUAN PEREZ', recinto: 'COLEGIO MEJIA' },
-            { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL' }
+            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE', email: 'issac.delacadena@epn.edu.ec' },
+            { cedula: '1722256492', nombres: 'JUAN PEREZ', recinto: 'COLEGIO MEJIA', email: 'joel.participante@epn.edu.ec', },
+            { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL', email: 'participante3@epn.edu.ec' },
         ];
 
         ciudadanos.forEach(c => {
             this.padronElectoral.set(c.cedula, {
                 ...c,
-                estadoVoto: EstadoVoto.NO_VOTO
+                estadoVoto: EstadoVoto.NO_VOTO,
+                certificado_enviado: false,
             });
         });
 
@@ -208,6 +211,77 @@ export class CensusService {
     async registrarVotoRealizado(cedula: string) {
         console.log('[CENSUS SERVICE] Registrando voto para:', cedula);
         return this.actualizarEstadoVoto(cedula, EstadoVoto.VOTO);
+    }
+
+
+    /**
+     * Obtener ciudadanos en estado GUARDANDO_VOTO que aún no tienen certificado enviado.
+     * Útil para el servicio de mensajería/email.
+     */
+    async obtenerPendientesCertificado() {
+        console.log('[CENSUS SERVICE] Consultando ciudadanos pendientes de certificado');
+
+        // Define la interfaz o usa 'any' para el arreglo
+        const pendientes: any[] = [];
+
+        this.padronElectoral.forEach((ciudadano) => {
+            if (ciudadano.estadoVoto === EstadoVoto.GUARDANDO_VOTO && !ciudadano.certificado_enviado) {
+                pendientes.push({
+                    cedula: ciudadano.cedula,
+                    nombres: ciudadano.nombres,
+                    recinto: ciudadano.recinto,
+                    email: ciudadano.email
+                });
+            }
+        });
+
+        return pendientes;
+    }
+
+    /**
+     * Notificar envío de certificados y finalizar proceso de votación (GUARDANDO_VOTO -> VOTO)
+     * @param cedulas Lista de cédulas procesadas por el servicio de email
+     */
+    async confirmarEnvioCertificados(cedulas: string[]) {
+        console.log(`[CENSUS SERVICE] Confirmando envío de certificados para ${cedulas.length} ciudadanos`);
+
+        // Tipar el objeto de resultados
+        const resultados: { actualizados: number, errores: any[] } = {
+            actualizados: 0,
+            errores: [] // <--- Ahora acepta objetos gracias al tipo 'any[]' anterior
+        };
+
+        cedulas.forEach(cedula => {
+            const ciudadano = this.padronElectoral.get(cedula);
+            if (!ciudadano) {
+                resultados.errores.push({ cedula, mensaje: 'Ciudadano no encontrado' });
+                return;
+            }
+
+            // Validación de seguridad: Solo actualizar si estaba esperando el certificado
+            if (ciudadano.estadoVoto !== EstadoVoto.GUARDANDO_VOTO) {
+                resultados.errores.push({
+                    cedula,
+                    mensaje: `Estado inválido para finalizar: ${ciudadano.estadoVoto}`
+                });
+                return;
+            }
+
+            // Actualización de estado y bandera de certificado
+            this.confirmarVoto(cedula);
+            ciudadano.certificado_enviado = true;
+
+            this.padronElectoral.set(cedula, ciudadano);
+            resultados.actualizados++;
+        });
+
+        return {
+            success: true,
+            procesados: resultados.actualizados,
+            fallidos: resultados.errores.length,
+            errores: resultados.errores,
+            message: `Se finalizaron ${resultados.actualizados} procesos de votación con éxito.`
+        };
     }
 
     /**

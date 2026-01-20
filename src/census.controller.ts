@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+import { Body, Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CensusService, EstadoVoto } from './census.service';
 import { CheckStatusDto } from './dto/census.dto';
@@ -65,6 +65,26 @@ export class CensusController {
     async registrarVoto(@Payload() data: CheckStatusDto) {
         console.log('[CENSUS CONTROLLER] Mensaje recibido: census.register-vote');
         return this.censusService.registrarVotoRealizado(data.cedula);
+    }
+
+    /**
+     * Registrar voto realizado (compatible con versión anterior)
+     * Pattern: census.register-vote
+     */
+    @MessagePattern('census.consult_citizine_with_vote')
+    async consultCitizineWithVote() {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.consult_citizine_with_vote');
+        return this.censusService.obtenerPendientesCertificado();
+    }
+
+    /**
+     * Registrar voto realizado (compatible con versión anterior)
+     * Pattern: census.register-vote
+     */
+    @MessagePattern('census.certificates_send_update')
+    async confirmarEnvioCertificados(@Body() data: { cedulas: string[] }) {
+        console.log('[CENSUS CONTROLLER] Mensaje recibido: census.certificates_send_update');
+        return this.censusService.confirmarEnvioCertificados(data.cedulas);
     }
 
     /**

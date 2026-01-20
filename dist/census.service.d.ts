@@ -52,6 +52,14 @@ export declare class CensusService {
         estadoActual: EstadoVoto;
         message: string;
     }>;
+    obtenerPendientesCertificado(): Promise<any[]>;
+    confirmarEnvioCertificados(cedulas: string[]): Promise<{
+        success: boolean;
+        procesados: number;
+        fallidos: number;
+        errores: any[];
+        message: string;
+    }>;
     healthCheck(): {
         status: string;
         service: string;

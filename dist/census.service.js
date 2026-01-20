@@ -26,14 +26,15 @@ let CensusService = class CensusService {
     }
     inicializarPadronMock() {
         const ciudadanos = [
-            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE' },
-            { cedula: '1722256492', nombres: 'JUAN PEREZ', recinto: 'COLEGIO MEJIA' },
-            { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL' }
+            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE', email: 'issac.delacadena@epn.edu.ec' },
+            { cedula: '1722256492', nombres: 'JUAN PEREZ', recinto: 'COLEGIO MEJIA', email: 'joel.participante@epn.edu.ec', },
+            { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL', email: 'participante3@epn.edu.ec' },
         ];
         ciudadanos.forEach(c => {
             this.padronElectoral.set(c.cedula, {
                 ...c,
-                estadoVoto: EstadoVoto.NO_VOTO
+                estadoVoto: EstadoVoto.NO_VOTO,
+                certificado_enviado: false,
             });
         });
         console.log(`[CENSUS SERVICE] Padrón inicializado con ${ciudadanos.length} ciudadanos.`);
@@ -154,6 +155,53 @@ let CensusService = class CensusService {
     async registrarVotoRealizado(cedula) {
         console.log('[CENSUS SERVICE] Registrando voto para:', cedula);
         return this.actualizarEstadoVoto(cedula, EstadoVoto.VOTO);
+    }
+    async obtenerPendientesCertificado() {
+        console.log('[CENSUS SERVICE] Consultando ciudadanos pendientes de certificado');
+        const pendientes = [];
+        this.padronElectoral.forEach((ciudadano) => {
+            if (ciudadano.estadoVoto === EstadoVoto.GUARDANDO_VOTO && !ciudadano.certificado_enviado) {
+                pendientes.push({
+                    cedula: ciudadano.cedula,
+                    nombres: ciudadano.nombres,
+                    recinto: ciudadano.recinto,
+                    email: ciudadano.email
+                });
+            }
+        });
+        return pendientes;
+    }
+    async confirmarEnvioCertificados(cedulas) {
+        console.log(`[CENSUS SERVICE] Confirmando envío de certificados para ${cedulas.length} ciudadanos`);
+        const resultados = {
+            actualizados: 0,
+            errores: []
+        };
+        cedulas.forEach(cedula => {
+            const ciudadano = this.padronElectoral.get(cedula);
+            if (!ciudadano) {
+                resultados.errores.push({ cedula, mensaje: 'Ciudadano no encontrado' });
+                return;
+            }
+            if (ciudadano.estadoVoto !== EstadoVoto.GUARDANDO_VOTO) {
+                resultados.errores.push({
+                    cedula,
+                    mensaje: `Estado inválido para finalizar: ${ciudadano.estadoVoto}`
+                });
+                return;
+            }
+            this.confirmarVoto(cedula);
+            ciudadano.certificado_enviado = true;
+            this.padronElectoral.set(cedula, ciudadano);
+            resultados.actualizados++;
+        });
+        return {
+            success: true,
+            procesados: resultados.actualizados,
+            fallidos: resultados.errores.length,
+            errores: resultados.errores,
+            message: `Se finalizaron ${resultados.actualizados} procesos de votación con éxito.`
+        };
     }
     healthCheck() {
         const estadisticas = {
