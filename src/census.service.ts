@@ -225,7 +225,7 @@ export class CensusService {
         const pendientes: any[] = [];
 
         this.padronElectoral.forEach((ciudadano) => {
-            if (ciudadano.estadoVoto === EstadoVoto.GUARDANDO_VOTO && !ciudadano.certificado_enviado) {
+            if (ciudadano.estadoVoto === EstadoVoto.VOTO && !ciudadano.certificado_enviado) {
                 pendientes.push({
                     cedula: ciudadano.cedula,
                     nombres: ciudadano.nombres,
