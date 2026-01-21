@@ -9,7 +9,7 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: process.env.CENSUS_SERVICE_HOST || 'localhost',
+        host: process.env.CENSUS_SERVICE_HOST || '127.0.0.1',
         port: parseInt(process.env.CENSUS_SERVICE_PORT || '3002'),
       },
     },

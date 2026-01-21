@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
+import { ClientProxy } from '@nestjs/microservices';
+import { ConfigService } from '@nestjs/config';
 
 // Estados de voto
 export enum EstadoVoto {
@@ -24,13 +26,17 @@ export class CensusService {
     // Simulación de Base de Datos en Memoria
     private padronElectoral: Map<string, CiudadanoPadron> = new Map();
 
-    constructor() {
+    constructor(
+        @Inject('CERTIFICATE_SERVICE') 
+        private clientCertificate: ClientProxy,
+        private configService: ConfigService
+    ) {
         this.inicializarPadronMock();
     }
 
     private inicializarPadronMock() {
         const ciudadanos = [
-            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE', email: 'issac.delacadena@epn.edu.ec' },
+            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE', email: 'santiagomfo@outlook.com' },
             { cedula: '1724915770', nombres: 'JOEL DEFAZ', recinto: 'COLEGIO MEJIA', email: 'joe.def2019@gmail.com', },
             { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL', email: 'participante3@epn.edu.ec' },
         ];
@@ -201,7 +207,19 @@ export class CensusService {
             });
         }
 
-        return this.actualizarEstadoVoto(cedula, EstadoVoto.VOTO);
+        this.actualizarEstadoVoto(cedula, EstadoVoto.VOTO);
+        
+        const secretToken = this.configService.get<string>('INTERNAL_SECRET');
+        
+        this.clientCertificate.emit('vote.confirmed', {
+            token: secretToken,
+            cedula: ciudadano.cedula,
+            nombres: ciudadano.nombres,
+            recinto: ciudadano.recinto,
+            email: ciudadano.email
+        });
+        
+        return { success: true, message: 'Voto confirmado.' };
     }
 
     /**
