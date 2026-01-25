@@ -1,9 +1,19 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
-import { ClientProxy } from '@nestjs/microservices';
-import { ConfigService } from '@nestjs/config';
+import { CandidatosService } from './candidatosRepository.service';
+import { CertificateProxy } from './proxies/certificate.proxy';
 
-// Estados de voto
+/**
+ * Interfaz para la respuesta del servicio de certificados.
+ */
+export interface CertificateResponse {
+    success: boolean;
+    message: string;
+}
+
+/**
+ * Estados posibles del proceso de votación en el padrón electoral.
+ */
 export enum EstadoVoto {
     NO_VOTO = 'NO_VOTO',           // No ha votado
     VOTANDO = 'VOTANDO',           // En proceso de votación
@@ -11,109 +21,138 @@ export enum EstadoVoto {
     VOTO = 'VOTO'                  // Ya votó
 }
 
-// Interfaz para el ciudadano en el padrón
-interface CiudadanoPadron {
-    cedula: string;
-    nombres: string;
-    recinto: string;
-    estadoVoto: EstadoVoto;
-    email: string;
-    certificado_enviado: boolean;
-}
-
+/**
+ * Servicio de censo electoral que gestiona el padrón y estados de votación.
+ * Maneja las transiciones de estado durante el proceso electoral y coordina
+ * la emisión de certificados de votación.
+ */
 @Injectable()
 export class CensusService {
-    // Simulación de Base de Datos en Memoria
-    private padronElectoral: Map<string, CiudadanoPadron> = new Map();
+    private readonly logger = new Logger(CensusService.name);
 
     constructor(
-        @Inject('CERTIFICATE_SERVICE') 
-        private clientCertificate: ClientProxy,
-        private configService: ConfigService
-    ) {
-        this.inicializarPadronMock();
-    }
-
-    private inicializarPadronMock() {
-        const ciudadanos = [
-            { cedula: '1500958069', nombres: 'ISSAC DE LA CADENA', recinto: 'EPN - FIEE', email: 'santiagomfo@outlook.com' },
-            { cedula: '1724915770', nombres: 'JOEL DEFAZ', recinto: 'COLEGIO MEJIA', email: 'joe.def2019@gmail.com', },
-            { cedula: '0104992564', nombres: 'MARIA LOPEZ', recinto: 'UNIVERSIDAD CENTRAL', email: 'participante3@epn.edu.ec' },
-        ];
-
-        ciudadanos.forEach(c => {
-            this.padronElectoral.set(c.cedula, {
-                ...c,
-                estadoVoto: EstadoVoto.NO_VOTO,
-                certificado_enviado: false,
-            });
-        });
-
-        console.log(`[CENSUS SERVICE] Padrón inicializado con ${ciudadanos.length} ciudadanos.`);
-    }
+        private readonly padronService: CandidatosService,
+        private readonly certificateProxy: CertificateProxy
+    ) {}
 
     /**
-     * Obtener estado de voto de un ciudadano
+     * Valida las credenciales de un ciudadano y verifica su elegibilidad para votar.
+     * 
+     * @param data - Datos de validación con cédula y código dactilar
+     * @returns Información de validación y datos del ciudadano si es válido
+     * @throws RpcException si ocurre un error interno
      */
-    async obtenerEstadoVoto(cedula: string) {
-        const ciudadano = this.padronElectoral.get(cedula);
+    async validarIdentidadCiudadano(data: any): Promise<any> {
+        try {
+            this.logger.log(`Validando identidad del ciudadano: ${data.cedula}`);
+            const ciudadano = await this.padronService.obtenerCandidato(data.cedula);
 
-        if (!ciudadano) {
+            // 1. Verificar que existe en el padrón
+            if (!ciudadano) {
+                this.logger.warn(`Ciudadano no encontrado en padrón: ${data.cedula}`);
+                return {
+                    exists: false,
+                    message: 'Ciudadano no registrado en el padrón electoral'
+                };
+            }
+
+            // 2. Validar código dactilar
+            const codigoValido = ciudadano.codigo_dactilar === data.codigoDactilar;
+            if (!codigoValido) {
+                this.logger.warn(`Código dactilar inválido para: ${data.cedula}`);
+                return {
+                    exists: false,
+                    message: 'Credenciales inválidas'
+                };
+            }
+
+            // 3. Verificar estado de votación (CRÍTICO PARA SEGURIDAD)
+            const estado = ciudadano.estado_voto;
+
+            // Si ya está votando, guardando o ya votó -> RECHAZAR
+            if (estado === EstadoVoto.VOTANDO) {
+                this.logger.warn(`Intento de autenticación duplicada - Ciudadano ${data.cedula} ya está votando`);
+                return {
+                    exists: false,
+                    canVote: false,
+                    message: 'Ya tiene una sesión de votación activa. Complete o cancele la votación actual.',
+                    currentState: estado
+                };
+            }
+
+            if (estado === EstadoVoto.GUARDANDO_VOTO) {
+                this.logger.warn(`Intento de re-votación - Ciudadano ${data.cedula} está guardando voto`);
+                return {
+                    exists: false,
+                    canVote: false,
+                    message: 'Su voto está siendo procesado. No puede iniciar una nueva votación.',
+                    currentState: estado
+                };
+            }
+
+            if (estado === EstadoVoto.VOTO) {
+                this.logger.warn(`Intento de re-votación - Ciudadano ${data.cedula} ya votó`);
+                return {
+                    exists: true,
+                    canVote: false,
+                    hasVoted: true,
+                    message: 'Ya ha ejercido su derecho al voto. No puede votar nuevamente.',
+                    currentState: estado
+                };
+            }
+
+            // 4. Solo si está en NO_VOTO puede proceder
+            if (estado === EstadoVoto.NO_VOTO) {
+                this.logger.log(` Validación exitosa - Ciudadano ${data.cedula} puede votar`);
+                return {
+                    exists: true,
+                    canVote: true,
+                    hasVoted: false,
+                    citizenData: {
+                        id: ciudadano.id,
+                        cedula: ciudadano.cedula,
+                        nombres: ciudadano.nombres,
+                        apellidos: ciudadano.apellidos,
+                        email: ciudadano.email
+                    },
+                    currentState: estado
+                };
+            }
+
+            // Estado desconocido (no debería pasar)
+            this.logger.error(`Estado de voto desconocido para ${data.cedula}: ${estado}`);
+            return {
+                exists: false,
+                canVote: false,
+                message: 'Estado de votación inválido. Contacte al administrador.',
+                currentState: estado
+            };
+
+        } catch (error) {
+            this.logger.error(`Error validando identidad de ${data.cedula}: ${error.message}`, error.stack);
             throw new RpcException({
                 success: false,
-                message: 'Ciudadano no empadronado.',
-                statusCode: 404
+                message: 'Error interno al validar identidad',
+                statusCode: 500
             });
         }
-
-        return {
-            success: true,
-            cedula: ciudadano.cedula,
-            nombres: ciudadano.nombres,
-            recinto: ciudadano.recinto,
-            estadoVoto: ciudadano.estadoVoto
-        };
     }
 
     /**
-     * Verificar si un ciudadano puede votar
+     * Inicia el proceso de votación para un ciudadano.
+     * Transición válida: NO_VOTO → VOTANDO
+     * 
+     * @param id - Cédula del ciudadano
+     * @returns Confirmación del inicio de votación
+     * @throws RpcException si el ciudadano no existe o no puede iniciar votación
      */
-    async verificarEstadoVoto(cedula: string) {
-        console.log('[CENSUS SERVICE] Verificando estado de:', cedula);
+    async iniciarVotacion(id: string): Promise<any> {
+        this.logger.log(`Iniciando votación para: ${id}`);
 
-        const ciudadano = this.padronElectoral.get(cedula);
+        const ciudadano = await this.padronService.obtenerCandidatoPorId(id);
 
         if (!ciudadano) {
-            throw new RpcException({
-                success: false,
-                message: 'Ciudadano no empadronado o no existe.',
-                statusCode: 404
-            });
-        }
-
-        // Solo puede votar si está en estado NO_VOTO
-        const puedeVotar = ciudadano.estadoVoto === EstadoVoto.NO_VOTO;
-
-        return {
-            puedeVotar,
-            estadoVoto: ciudadano.estadoVoto,
-            mensaje: puedeVotar
-                ? 'Ciudadano habilitado para votar.'
-                : `El ciudadano tiene estado: ${ciudadano.estadoVoto}`,
-            nombres: ciudadano.nombres,
-            recinto: ciudadano.recinto
-        };
-    }
-
-    /**
-     * Actualizar estado de voto
-     */
-    async actualizarEstadoVoto(cedula: string, nuevoEstado: EstadoVoto) {
-        console.log(`[CENSUS SERVICE] Actualizando estado de ${cedula} a ${nuevoEstado}`);
-
-        const ciudadano = this.padronElectoral.get(cedula);
-
-        if (!ciudadano) {
+            this.logger.error(`Ciudadano no encontrado para iniciar votación: ${id}`);
             throw new RpcException({
                 success: false,
                 message: 'Ciudadano no encontrado',
@@ -121,35 +160,8 @@ export class CensusService {
             });
         }
 
-        const estadoAnterior = ciudadano.estadoVoto;
-        ciudadano.estadoVoto = nuevoEstado;
-        this.padronElectoral.set(cedula, ciudadano);
-
-        console.log(`[CENSUS SERVICE] Estado actualizado: ${estadoAnterior} -> ${nuevoEstado}`);
-
-        return {
-            success: true,
-            estadoAnterior,
-            estadoActual: nuevoEstado,
-            message: `Estado de voto actualizado a ${nuevoEstado}`
-        };
-    }
-
-    /**
-     * Iniciar proceso de votación (NO_VOTO -> VOTANDO)
-     */
-    async iniciarVotacion(cedula: string) {
-        const ciudadano = this.padronElectoral.get(cedula);
-
-        if (!ciudadano) {
-            throw new RpcException({
-                success: false,
-                message: 'Ciudadano no encontrado',
-                statusCode: 404
-            });
-        }
-
-        if (ciudadano.estadoVoto !== EstadoVoto.NO_VOTO) {
+        if (ciudadano.estado_voto !== EstadoVoto.NO_VOTO) {
+            this.logger.warn(`Intento de iniciar votación inválido para ${id} - Estado actual: ${ciudadano.estadoVoto}`);
             throw new RpcException({
                 success: false,
                 message: `No puede iniciar votación. Estado actual: ${ciudadano.estadoVoto}`,
@@ -157,16 +169,25 @@ export class CensusService {
             });
         }
 
-        return this.actualizarEstadoVoto(cedula, EstadoVoto.VOTANDO);
+        //return this.actualizarEstadoVoto(id, EstadoVoto.VOTANDO);
+        return this.padronService.actualizarEstado(id, EstadoVoto.VOTANDO);
     }
 
     /**
-     * Guardar voto (VOTANDO -> GUARDANDO_VOTO)
+     * Procesa el guardado del voto en blockchain.
+     * Transición válida: VOTANDO → GUARDANDO_VOTO
+     * 
+     * @param id - Cédula del ciudadano
+     * @returns Confirmación del guardado
+     * @throws RpcException si el ciudadano no existe o no puede guardar el voto
      */
-    async guardarVoto(cedula: string) {
-        const ciudadano = this.padronElectoral.get(cedula);
+    async guardarVoto(id: string): Promise<any> {
+        this.logger.log(`Guardando voto para: ${id}`);
+
+        const ciudadano = await this.padronService.obtenerCandidatoPorId(id);
 
         if (!ciudadano) {
+            this.logger.error(`Ciudadano no encontrado para guardar voto: ${id}`);
             throw new RpcException({
                 success: false,
                 message: 'Ciudadano no encontrado',
@@ -174,7 +195,8 @@ export class CensusService {
             });
         }
 
-        if (ciudadano.estadoVoto !== EstadoVoto.VOTANDO) {
+        if (ciudadano.estado_voto !== EstadoVoto.VOTANDO) {
+            this.logger.warn(`Intento de guardar voto inválido para ${id} - Estado actual: ${ciudadano.estadoVoto}`);
             throw new RpcException({
                 success: false,
                 message: `No puede guardar voto. Estado actual: ${ciudadano.estadoVoto}`,
@@ -182,131 +204,89 @@ export class CensusService {
             });
         }
 
-        return this.actualizarEstadoVoto(cedula, EstadoVoto.GUARDANDO_VOTO);
+        return this.padronService.actualizarEstado(id, EstadoVoto.GUARDANDO_VOTO);
     }
 
     /**
-     * Confirmar voto realizado (GUARDANDO_VOTO -> VOTO)
+     * Confirma definitivamente el voto y notifica al servicio de certificados.
+     * Transición válida: GUARDANDO_VOTO → VOTO
+     * 
+     * @param id - Cédula del ciudadano
+     * @returns Confirmación del voto finalizado
+     * @throws RpcException si el ciudadano no existe o no puede confirmar el voto
      */
-    async confirmarVoto(cedula: string) {
-        const ciudadano = this.padronElectoral.get(cedula);
+    async confirmarVoto(id: string): Promise<any> {
+        this.logger.log(`Confirmando voto final para: ${id}`);
 
-        if (!ciudadano) {
-            throw new RpcException({
-                success: false,
-                message: 'Ciudadano no encontrado',
-                statusCode: 404
-            });
-        }
+        try {
+            const ciudadano = await this.padronService.obtenerCandidatoPorId(id);
 
-        if (ciudadano.estadoVoto !== EstadoVoto.GUARDANDO_VOTO) {
-            throw new RpcException({
-                success: false,
-                message: `No puede confirmar voto. Estado actual: ${ciudadano.estadoVoto}`,
-                statusCode: 400
-            });
-        }
-
-        this.actualizarEstadoVoto(cedula, EstadoVoto.VOTO);
-        
-        const secretToken = this.configService.get<string>('INTERNAL_SECRET');
-        
-        this.clientCertificate.emit('vote.confirmed', {
-            token: secretToken,
-            cedula: ciudadano.cedula,
-            nombres: ciudadano.nombres,
-            recinto: ciudadano.recinto,
-            email: ciudadano.email
-        });
-        
-        return { success: true, message: 'Voto confirmado.' };
-    }
-
-    /**
-     * Registrar voto completo (shortcut: NO_VOTO -> VOTO)
-     * Mantiene compatibilidad con la implementación anterior
-     */
-    async registrarVotoRealizado(cedula: string) {
-        console.log('[CENSUS SERVICE] Registrando voto para:', cedula);
-        return this.actualizarEstadoVoto(cedula, EstadoVoto.VOTO);
-    }
-
-
-    /**
-     * Obtener ciudadanos en estado GUARDANDO_VOTO que aún no tienen certificado enviado.
-     * Útil para el servicio de mensajería/email.
-     */
-    async obtenerPendientesCertificado() {
-        console.log('[CENSUS SERVICE] Consultando ciudadanos pendientes de certificado');
-
-        // Define la interfaz o usa 'any' para el arreglo
-        const pendientes: any[] = [];
-
-        this.padronElectoral.forEach((ciudadano) => {
-            if (ciudadano.estadoVoto === EstadoVoto.VOTO && !ciudadano.certificado_enviado) {
-                pendientes.push({
-                    cedula: ciudadano.cedula,
-                    nombres: ciudadano.nombres,
-                    recinto: ciudadano.recinto,
-                    email: ciudadano.email
-                });
-            }
-        });
-
-        return pendientes;
-    }
-
-    /**
-     * Notificar envío de certificados y finalizar proceso de votación (GUARDANDO_VOTO -> VOTO)
-     * @param cedulas Lista de cédulas procesadas por el servicio de email
-     */
-    async confirmarEnvioCertificados(cedulas: string[]) {
-        console.log(`[CENSUS SERVICE] Confirmando envío de certificados para ${cedulas.length} ciudadanos`);
-
-        // Tipar el objeto de resultados
-        const resultados: { actualizados: number, errores: any[] } = {
-            actualizados: 0,
-            errores: [] // <--- Ahora acepta objetos gracias al tipo 'any[]' anterior
-        };
-
-        cedulas.forEach(cedula => {
-            const ciudadano = this.padronElectoral.get(cedula);
             if (!ciudadano) {
-                resultados.errores.push({ cedula, mensaje: 'Ciudadano no encontrado' });
-                return;
-            }
-
-            // Validación de seguridad: Solo actualizar si estaba esperando el certificado
-            if (ciudadano.estadoVoto !== EstadoVoto.GUARDANDO_VOTO) {
-                resultados.errores.push({
-                    cedula,
-                    mensaje: `Estado inválido para finalizar: ${ciudadano.estadoVoto}`
+                this.logger.error(`Ciudadano no encontrado para confirmar voto: ${id}`);
+                throw new RpcException({
+                    success: false,
+                    message: 'Ciudadano no encontrado',
+                    statusCode: 404
                 });
-                return;
             }
 
-            // Actualización de estado y bandera de certificado
-            this.confirmarVoto(cedula);
-            ciudadano.certificado_enviado = true;
+            if (ciudadano.estado_voto !== EstadoVoto.GUARDANDO_VOTO) {
+                this.logger.warn(`Intento de confirmación inválido para ${id} - Estado actual: ${ciudadano.estado_voto}`);
+                throw new RpcException({
+                    success: false,
+                    message: `No puede confirmar voto. Estado actual: ${ciudadano.estado_voto}`,
+                    statusCode: 400
+                });
+            }
 
-            this.padronElectoral.set(cedula, ciudadano);
-            resultados.actualizados++;
-        });
+            // Actualizar estado a VOTO
+            const ciudadanoActualizado = await this.padronService.actualizarEstado(id, EstadoVoto.VOTO);
 
-        return {
-            success: true,
-            procesados: resultados.actualizados,
-            fallidos: resultados.errores.length,
-            errores: resultados.errores,
-            message: `Se finalizaron ${resultados.actualizados} procesos de votación con éxito.`
-        };
+            if (!ciudadanoActualizado) {
+                throw new RpcException({
+                    success: false,
+                    message: 'Error al actualizar estado del ciudadano',
+                    statusCode: 500
+                });
+            }
+
+            // Intentar enviar certificado (no crítico)
+            try {
+                const result = await this.certificateProxy.emitirCertificado({
+                    cedula: ciudadanoActualizado.cedula,
+                    nombres: ciudadanoActualizado.nombres,
+                    recinto: ciudadanoActualizado.recinto,
+                    email: ciudadanoActualizado.email
+                });
+
+                if (result?.success) {
+                    this.logger.log(`Certificado enviado para ciudadano ${id}`);
+                } else {
+                    this.logger.warn(`Certificado no enviado: ${result?.message || 'Error desconocido'}`);
+                }
+            } catch (certError) {
+                // El voto YA está confirmado, solo logueamos el error del certificado
+                this.logger.error(`Error enviando certificado (voto confirmado): ${certError.message}`);
+            }
+
+            // RETORNAR RESPUESTA EXITOSA
+            return {
+                success: true,
+                message: 'Voto confirmado exitosamente y certificado emitido.',
+            };
+
+        } catch (error) {
+            this.logger.error(`Error confirmando voto para ${id}: ${error.message}`);
+            throw error; // Re-lanzar para que el caller maneje el error
+        }
     }
 
     /**
-     * Health check
+     * Proporciona información de salud y estadísticas del servicio.
+     * 
+     * @returns Estado del servicio y distribución de ciudadanos por estado electoral
      */
-    healthCheck() {
-        // Contar estados
+    healthCheck(): any {
         const estadisticas = {
             NO_VOTO: 0,
             VOTANDO: 0,
@@ -314,16 +294,14 @@ export class CensusService {
             VOTO: 0
         };
 
-        this.padronElectoral.forEach(c => {
-            estadisticas[c.estadoVoto]++;
-        });
-
-        return {
+        const result = {
             status: 'ok',
             service: 'census-service',
-            totalCiudadanos: this.padronElectoral.size,
             estadisticas,
             timestamp: new Date().toISOString()
         };
+
+        this.logger.log(`Health check - , Estados: ${JSON.stringify(estadisticas)}`);
+        return result;
     }
 }

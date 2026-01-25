@@ -3,12 +3,20 @@ import { CensusController } from './census.controller';
 import { CensusService } from './census.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { EnvelopeOpenerInterceptor } from './interceptors/envelopeOpener.interceptor';
+import { KeyVaultService } from './security/keyVault.service';
+import { CandidatosService } from './candidatosRepository.service';
+import { CertificateProxy } from './proxies/certificate.proxy';
+import { EnvelopePackerService } from './security/envelopePacker.service';
 
+/**
+ * Módulo principal del servicio de censo electoral.
+ * Gestiona el padrón electoral, estados de votación y comunicación con el servicio de certificados.
+ */
 @Module({
   imports: [
-    // Carga las variables de entorno y las hace globales
     ConfigModule.forRoot({ isGlobal: true }),
-    // Configura el cliente TCP para el Certificate Service
     ClientsModule.registerAsync([
       {
         name: 'CERTIFICATE_SERVICE',
@@ -24,6 +32,16 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
     ]),
   ],
   controllers: [CensusController],
-  providers: [CensusService],
+  providers: [
+    CensusService,
+    KeyVaultService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: EnvelopeOpenerInterceptor,
+    },
+    CandidatosService,
+    CertificateProxy,
+    EnvelopePackerService
+  ],
 })
-export class AppModule { }
+export class AppModule {}
